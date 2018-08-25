@@ -63,9 +63,7 @@ def job(tuning, params_path, devices, resume):
         with open(params_path, 'r') as f:
             params = json.load(f)
         mode_str = 'tuning'
-        setting = ''
-        for tp in params['tuning_params']:
-            setting += f'{tp}-{params[tp]}_'
+        setting = '_'.join(f'{tp}-{params[tp]}' for tp in params['tuning_params'])
     else:
         mode_str = 'train'
         setting = ''
