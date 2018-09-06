@@ -88,22 +88,26 @@ def load_checkpoint(model, path, optimizer=None):
         return model
 
 
-def set_logger(log_dir, loglevel=logging.INFO, tf_board_dir=None):
+def get_logger(log_dir, loglevel=logging.INFO, tensorboard_dir=None):
+    from logzero import logger
+
     if not Path(log_dir).exists():
         Path(log_dir).mkdir(parents=True)
     logzero.loglevel(loglevel)
     logzero.formatter(logging.Formatter('[%(asctime)s %(levelname)s] %(message)s'))
     logzero.logfile(log_dir + '/logfile')
 
-    if tf_board_dir is not None:
-        if not Path(tf_board_dir).exists():
-            Path(tf_board_dir).mkdir(parents=True)
-        writer = SummaryWriter(tf_board_dir)
+    if tensorboard_dir is not None:
+        if not Path(tensorboard_dir).exists():
+            Path(tensorboard_dir).mkdir(parents=True)
+        writer = SummaryWriter(tensorboard_dir)
 
-        return writer
+        return logger, writer
+
+    return logger
 
 
-def get_optim(params, model):
+def get_optim(model, params):
     if params['optimizer'] == 'sgd':
         optimizer = optim.SGD(model.parameters(), params['lr'], weight_decay=params['wd'])
     elif params['optimizer'] == 'momentum':
@@ -112,11 +116,11 @@ def get_optim(params, model):
         optimizer = optim.SGD(model.parameters(), params['lr'], momentum=0.9,
                               weight_decay=params['wd'], nesterov=True)
     elif params['optimizer'] == 'adam':
-        optimizer = optim.Adam(model.params, params['lr'], weight_decay=params['wd'])
+        optimizer = optim.Adam(model.parameters(), params['lr'], weight_decay=params['wd'])
     elif params['optimizer'] == 'amsgrad':
-        optimizer = optim.Adam(model.params, params['lr'], weight_decay=params['wd'], amsgrad=True)
+        optimizer = optim.Adam(model.parameters(), params['lr'], weight_decay=params['wd'], amsgrad=True)
     elif params['optimizer'] == 'rmsprop':
-        optimizer = optim.RMSprop(model.parameters, params['lr'], weight_decay=params['wd'])
+        optimizer = optim.RMSprop(model.parameters(), params['lr'], weight_decay=params['wd'])
     else:
         raise ValueError
 

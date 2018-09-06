@@ -68,8 +68,8 @@ def job(tuning, params_path, devices, resume):
         mode_str = 'train'
         setting = ''
 
-    writer = utils.set_logger(log_dir=exp_path + f'{mode_str}/log/',
-                              tf_board_dir=exp_path + f'{mode_str}/tf_board/')
+    logger, writer = utils.get_logger(log_dir=exp_path + f'{mode_str}/log/',
+                                      tensorboard_dir=exp_path + f'{mode_str}/tf_board/')
 
     train_df = pd.read_csv(ROOT + 'data/train.csv')
     train_df, val_df = train_test_split(train_df, test_size=1024, random_state=114514)
