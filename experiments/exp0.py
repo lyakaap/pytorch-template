@@ -4,7 +4,6 @@ import numpy as np
 import pandas as pd
 from pathlib import Path
 import lockfile
-from logzero import logger
 from tqdm import tqdm
 import os
 import subprocess
@@ -13,8 +12,7 @@ import torch
 import torch.nn as nn
 import torch.optim as optim
 from torch.utils.data import DataLoader
-from torchvision import datasets, transforms
-
+from torchvision import transforms
 from src import utils, data_utils, models
 
 ROOT = '/opt/airbus-ship-detection/'

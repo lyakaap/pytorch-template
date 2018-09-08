@@ -10,7 +10,6 @@ from sklearn.model_selection import ParameterGrid, ParameterSampler
 from tensorboardX import SummaryWriter
 import torch
 import torch.optim as optim
-import numpy as np
 import pandas as pd
 
 
