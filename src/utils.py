@@ -52,39 +52,65 @@ def accuracy(output, target, top_k=(1,)):
     return res
 
 
-def save_checkpoint(model, epoch, filename, optimizer=None):
-    if optimizer is None:
-        torch.save({
-            'epoch': epoch,
-            'state_dict': model.state_dict(),
-        }, filename)
-    else:
-        torch.save({
-            'epoch': epoch,
-            'state_dict': model.state_dict(),
-            'optimizer': optimizer.state_dict(),
-        }, filename)
+def save_checkpoint(model, epoch, filename, optimizer=None, save_arch=False, params=None):
+    attributes = {
+        'epoch': epoch,
+        'state_dict': model.state_dict(),
+    }
+
+    if optimizer is not None:
+        attributes['optimizer'] = optimizer.state_dict()
+
+    if save_arch:
+        attributes['arch'] = model
+
+    if params is not None:
+        attributes['params'] = params
+
+    try:
+        torch.save(attributes, filename)
+    except TypeError:
+        if 'arch' in attributes:
+            print('Model architecture will be ignored because the architecture includes non-pickable objects.')
+            del attributes['arch']
+            torch.save(attributes, filename)
 
 
-def load_checkpoint(model, path, optimizer=None):
+def load_checkpoint(path, model=None, optimizer=None, params=False):
     resume = torch.load(path)
 
-    if ('module' in list(resume['state_dict'].keys())[0]) \
-            and not (isinstance(model, torch.nn.DataParallel)):
-        new_state_dict = OrderedDict()
-        for k, v in resume['state_dict'].items():
-            name = k[7:]  # remove `module.`
-            new_state_dict[name] = v
+    rets = dict()
 
-        model.load_state_dict(new_state_dict)
-    else:
-        model.load_state_dict(resume['state_dict'])
+    if model is not None:
+        if ('module' in list(resume['state_dict'].keys())[0]) \
+                and not (isinstance(model, torch.nn.DataParallel)):
+            new_state_dict = OrderedDict()
+            for k, v in resume['state_dict'].items():
+                name = k[7:]  # remove `module.`
+                new_state_dict[name] = v
+
+            model.load_state_dict(new_state_dict)
+        else:
+            model.load_state_dict(resume['state_dict'])
+
+        rets['model'] = model
 
     if optimizer is not None:
         optimizer.load_state_dict(resume['optimizer'])
-        return model, optimizer
-    else:
-        return model
+        rets['optimizer'] = optimizer
+    if params:
+        rets['params'] = resume['params']
+
+    return rets
+
+
+def load_model(path, is_inference=True):
+    resume = torch.load(path)
+    model = resume['arch']
+    model.load_state_dict(resume['state_dict'])
+    if is_inference:
+        model.eval()
+    return model
 
 
 def get_logger(log_dir, loglevel=logging.INFO, tensorboard_dir=None):
@@ -93,7 +119,7 @@ def get_logger(log_dir, loglevel=logging.INFO, tensorboard_dir=None):
     if not Path(log_dir).exists():
         Path(log_dir).mkdir(parents=True)
     logzero.loglevel(loglevel)
-    logzero.formatter(logging.Formatter('[%(asctime)s %(levelname)s] %(message)s'))
+    # logzero.formatter(logging.Formatter('[%(asctime)s %(levelname)s] %(message)s'))
     logzero.logfile(log_dir + '/logfile')
 
     if tensorboard_dir is not None:
@@ -106,24 +132,42 @@ def get_logger(log_dir, loglevel=logging.INFO, tensorboard_dir=None):
     return logger
 
 
-def get_optim(model, params):
+def get_optim(params, target):
+
+    if isinstance(target, nn.Module):
+        target = target.parameters()
+
     if params['optimizer'] == 'sgd':
-        optimizer = optim.SGD(model.parameters(), params['lr'], weight_decay=params['wd'])
+        optimizer = optim.SGD(target, params['lr'], weight_decay=params['wd'])
     elif params['optimizer'] == 'momentum':
-        optimizer = optim.SGD(model.parameters(), params['lr'], momentum=0.9, weight_decay=params['wd'])
+        optimizer = optim.SGD(target, params['lr'], momentum=0.9, weight_decay=params['wd'])
     elif params['optimizer'] == 'nesterov':
-        optimizer = optim.SGD(model.parameters(), params['lr'], momentum=0.9,
+        optimizer = optim.SGD(target, params['lr'], momentum=0.9,
                               weight_decay=params['wd'], nesterov=True)
     elif params['optimizer'] == 'adam':
-        optimizer = optim.Adam(model.parameters(), params['lr'], weight_decay=params['wd'])
+        optimizer = optim.Adam(target, params['lr'], weight_decay=params['wd'])
     elif params['optimizer'] == 'amsgrad':
-        optimizer = optim.Adam(model.parameters(), params['lr'], weight_decay=params['wd'], amsgrad=True)
+        optimizer = optim.Adam(target, params['lr'], weight_decay=params['wd'], amsgrad=True)
     elif params['optimizer'] == 'rmsprop':
-        optimizer = optim.RMSprop(model.parameters(), params['lr'], weight_decay=params['wd'])
+        optimizer = optim.RMSprop(target, params['lr'], weight_decay=params['wd'])
     else:
         raise ValueError
 
     return optimizer
+
+
+def write_tuning_result(params: dict, results: dict, df_path: str):
+    row = pd.DataFrame()
+    for key in params['tuning_params']:
+        row[key] = [params[key]]
+
+    for key, val in results.items():
+        row[key] = val
+
+    with lockfile.FileLock(df_path):
+        df_results = pd.read_csv(df_path)
+        df_results = pd.concat([df_results, row], sort=False).reset_index(drop=True)
+        df_results.to_csv(df_path, index=None)
 
 
 # check if current params combination has already done
@@ -192,3 +236,20 @@ def launch_tuning(mode, n_iter, n_gpu, devices, params, space, root, metrics=('a
         cmd = f'{sys.executable} {params["ex_name"]}.py job ' \
               f'--tuning --params-path {params_path} --devices "{devices}"'
         procs.append((subprocess.Popen(cmd, shell=True), devices))
+
+    while True:
+        time.sleep(1)
+        if all(p.poll() is not None for i, (p, dev) in enumerate(procs)):
+            print('All parameter combinations have finished.')
+            break
+
+
+def show_tuning_result(ex_name, mode='markdown', sort_by='val_miou_3'):
+    res = pd.read_csv(f'../experiments/{ex_name}/tuning/results.csv')
+    table = res.sort_values(sort_by, ascending=False)
+    if mode == 'markdown':
+        from tabulate import tabulate
+        print(tabulate(table, headers='keys', tablefmt='pipe', showindex=False))
+    else:
+        from IPython.core.display import display
+        display(table)
