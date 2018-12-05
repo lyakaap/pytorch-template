@@ -18,7 +18,7 @@ from src import utils, data_utils, models
 ROOT = '/opt/airbus-ship-detection/'
 
 params = {
-    'ex_name': __file__[:-3],  # remove '.py'
+    'ex_name': __file__.replace('.py', ''),
     'seed': 123456789,
     'lr': 1e-4,
     'batch_size': 8,
@@ -66,11 +66,11 @@ def job(tuning, params_path, devices, resume):
         mode_str = 'train'
         setting = ''
 
-    logger, writer = utils.get_logger(log_dir=exp_path + f'{mode_str}/log/',
-                                      tensorboard_dir=exp_path + f'{mode_str}/tf_board/')
+    logger, writer = utils.get_logger(log_dir=exp_path + f'{mode_str}/log/{setting}',
+                                      tensorboard_dir=exp_path + f'{mode_str}/tf_board/{setting}')
 
     train_df = pd.read_csv(ROOT + 'data/train.csv')
-    train_df, val_df = train_test_split(train_df, test_size=1024, random_state=114514)
+    train_df, val_df = train_test_split(train_df, test_size=1024, random_state=params['seed'])
 
     model = models.UNet(in_channels=3, n_classes=2, depth=4, ch_first=32, padding=True,
                         batch_norm=False, up_mode='upconv').cuda()
@@ -154,6 +154,9 @@ def job(tuning, params_path, devices, resume):
 
         val_loss = losses.avg
         val_acc = prec1.avg
+
+        logger.info(f'[Val] Loss: \033[1m{val_loss:.4f}\033[0m | '
+                    f'Acc: \033[1m{val_acc:.4f}\033[0m\n')
 
         writer.add_scalars('Loss', {'train': train_loss}, epoch)
         writer.add_scalars('Acc', {'train': train_acc}, epoch)

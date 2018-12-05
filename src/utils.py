@@ -86,8 +86,7 @@ def load_checkpoint(path, model=None, optimizer=None, params=False):
                 and not (isinstance(model, torch.nn.DataParallel)):
             new_state_dict = OrderedDict()
             for k, v in resume['state_dict'].items():
-                name = k[7:]  # remove `module.`
-                new_state_dict[name] = v
+                new_state_dict[k.replace('module.', '')] = v  # remove DataParallel wrapping
 
             model.load_state_dict(new_state_dict)
         else:
@@ -119,7 +118,6 @@ def get_logger(log_dir, loglevel=logging.INFO, tensorboard_dir=None):
     if not Path(log_dir).exists():
         Path(log_dir).mkdir(parents=True)
     logzero.loglevel(loglevel)
-    # logzero.formatter(logging.Formatter('[%(asctime)s %(levelname)s] %(message)s'))
     logzero.logfile(log_dir + '/logfile')
 
     if tensorboard_dir is not None:

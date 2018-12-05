@@ -1,6 +1,115 @@
 import torch
-import torch.nn as nn
+from torch import nn
 import torch.nn.functional as F
+
+
+class UNet(nn.Module):
+    def __init__(self, in_channels=1, n_classes=2, depth=5, ch_first=6, padding=False,
+                 batch_norm=False, up_mode='upconv'):
+        """
+        Implementation of
+        U-Net: Convolutional Networks for Biomedical Image Segmentation
+        (Ronneberger et al., 2015)
+        https://arxiv.org/abs/1505.04597
+        Using the default arguments will yield the exact version used
+        in the original paper
+        Args:
+            in_channels (int): number of input channels
+            n_classes (int): number of output channels
+            depth (int): depth of the network
+            ch_first (int): number of filters in the first layer is 2**wf
+            padding (bool): if True, apply padding such that the input shape
+                            is the same as the output.
+                            This may introduce artifacts
+            batch_norm (bool): Use BatchNorm after layers with an
+                               activation function
+            up_mode (str): one of 'deconv' or 'upconv'.
+                           'deconv' will use transposed convolutions for
+                           learned upsampling.
+                           'upconv' will use bilinear upsampling.
+        """
+        super(UNet, self).__init__()
+        assert up_mode in ('deconv', 'upconv')
+        self.padding = padding
+        self.depth = depth
+        prev_channels = in_channels
+        self.down_path = nn.ModuleList()
+        for i in range(depth):
+            self.down_path.append(UNetConvBlock(prev_channels, 2 ** (ch_first + i),
+                                                padding, batch_norm))
+            prev_channels = 2**(ch_first + i)
+
+        self.up_path = nn.ModuleList()
+        for i in reversed(range(depth - 1)):
+            self.up_path.append(UNetUpBlock(prev_channels, 2 ** (ch_first + i), up_mode,
+                                            padding, batch_norm))
+            prev_channels = 2**(ch_first + i)
+
+        self.last = nn.Conv2d(prev_channels, n_classes, kernel_size=1)
+
+    def forward(self, x):
+        blocks = []
+        for i, down in enumerate(self.down_path):
+            x = down(x)
+            if i != len(self.down_path)-1:
+                blocks.append(x)
+                x = F.avg_pool2d(x, 2)
+
+        for i, up in enumerate(self.up_path):
+            x = up(x, blocks[-i-1])
+
+        return self.last(x)
+
+
+class UNetConvBlock(nn.Module):
+    def __init__(self, in_size, out_size, padding, batch_norm):
+        super(UNetConvBlock, self).__init__()
+        block = []
+
+        block.append(nn.Conv2d(in_size, out_size, kernel_size=3,
+                               padding=int(padding)))
+        block.append(nn.ReLU())
+        if batch_norm:
+            block.append(nn.BatchNorm2d(out_size))
+
+        block.append(nn.Conv2d(out_size, out_size, kernel_size=3,
+                               padding=int(padding)))
+        block.append(nn.ReLU())
+        if batch_norm:
+            block.append(nn.BatchNorm2d(out_size))
+
+        self.block = nn.Sequential(*block)
+
+    def forward(self, x):
+        out = self.block(x)
+        return out
+
+
+class UNetUpBlock(nn.Module):
+    def __init__(self, in_size, out_size, up_mode, padding, batch_norm):
+        super(UNetUpBlock, self).__init__()
+        if up_mode == 'deconv':
+            self.up = nn.ConvTranspose2d(in_size, out_size, kernel_size=2,
+                                         stride=2)
+        elif up_mode == 'upconv':
+            self.up = nn.Sequential(nn.Upsample(mode='bilinear', scale_factor=2),
+                                    nn.Conv2d(in_size, out_size, kernel_size=1))
+
+        self.conv_block = UNetConvBlock(in_size, out_size, padding, batch_norm)
+
+    def center_crop(self, layer, target_size):
+        _, _, layer_height, layer_width = layer.size()
+        diff_y = (layer_height - target_size[0]) // 2
+        diff_x = (layer_width - target_size[1]) // 2
+        return layer[:, :, diff_y:(diff_y + target_size[0]), diff_x:(diff_x + target_size[1])]
+
+    def forward(self, x, bridge):
+        up = self.up(x)
+        crop1 = self.center_crop(bridge, up.shape[2:])
+        out = torch.cat([up, crop1], 1)
+        out = self.conv_block(out)
+
+        return out
 
 
 class MultiModalNN(nn.Module):
@@ -105,18 +214,3 @@ class MultiModalNN(nn.Module):
         x = self.output_layer(x)
 
         return x
-
-
-class AbemaNet(nn.Module):
-
-    def __init__(self, emb_dims, n_channels_list=(64, 128), n_classes=1,
-                 emb_dropout=0.5, dropout_list=(0.5, 0.5)):
-        super(AbemaNet, self).__init__()
-
-        n_numeric_feats = 0
-        self.classifier = MultiModalNN(emb_dims=emb_dims, n_numeric_feats=n_numeric_feats,
-                                       n_channels_list=n_channels_list, n_classes=n_classes,
-                                       emb_dropout=emb_dropout, dropout_list=dropout_list)
-
-    def forward(self, *input):
-        pass
