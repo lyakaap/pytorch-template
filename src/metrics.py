@@ -2,10 +2,11 @@ import numpy as np
 import torch
 
 
-def accuracy(outputs: torch.Tensor, labels: torch.Tensor, ignore_index=255) -> int:
+def accuracy(outputs: torch.Tensor, labels: torch.Tensor, ignore_index: int=None) -> int:
+    # Num of class should be less than 255.
 
     if len(outputs.shape) == 4:
-        preds = outputs.max(dim=1)[1]
+        preds = outputs.argmax(dim=1)
     elif len(outputs.shape) == 3:
         preds = outputs
     else:
@@ -14,9 +15,10 @@ def accuracy(outputs: torch.Tensor, labels: torch.Tensor, ignore_index=255) -> i
     preds = preds.byte().flatten()
     labels = labels.byte().flatten()
 
-    is_not_ignore = labels != ignore_index
-    preds = preds[is_not_ignore]
-    labels = labels[is_not_ignore]
+    if ignore_index is not None:
+        is_not_ignore = labels != ignore_index
+        preds = preds[is_not_ignore]
+        labels = labels[is_not_ignore]
 
     correct = preds.eq(labels)
 
@@ -25,8 +27,31 @@ def accuracy(outputs: torch.Tensor, labels: torch.Tensor, ignore_index=255) -> i
     return acc
 
 
+def prec_at_k(output, target, top_k=(1,)):
+    """Computes the precision@k for the specified values of k"""
+    max_k = max(top_k)
+    batch_size = target.size(0)
+
+    _, pred = output.topk(max_k, 1, True, True)
+    pred = pred.t()
+    correct = pred.eq(target.view(1, -1).expand_as(pred))
+
+    res = []
+    for k in top_k:
+        correct_k = correct[:k].view(-1).float().sum(0, keepdim=True)
+        res.append(correct_k.mul_(100.0 / batch_size))
+
+    if len(res) == 1:
+        res = res[0]
+
+    return res
+
+
 def intersection_and_union(preds: torch.Tensor, labels: torch.Tensor,
                            ignore_index=255, n_classes=19):
+
+    assert ignore_index > n_classes, 'ignore_index should be grater than n_classes'
+
     preds = preds.byte().flatten()
     labels = labels.byte().flatten()
 
@@ -49,7 +74,7 @@ def intersection_and_union(preds: torch.Tensor, labels: torch.Tensor,
 
 def mean_iou(outputs, labels, n_classes=19):
 
-    preds = outputs.max(dim=1)[1]
+    preds = outputs.argmax(dim=1)
     intersection, union = intersection_and_union(preds, labels, n_classes=n_classes)
 
     return np.mean(intersection / (union + 1e-16))
