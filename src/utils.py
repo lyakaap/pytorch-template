@@ -1,16 +1,17 @@
-import logging
-import logzero
 import json
+import logging
 import subprocess
 import sys
 import time
 from collections import OrderedDict, deque
 from pathlib import Path
-from sklearn.model_selection import ParameterGrid, ParameterSampler
-from tensorboardX import SummaryWriter
+
+import logzero
+import pandas as pd
 import torch
 import torch.optim as optim
-import pandas as pd
+from sklearn.model_selection import ParameterGrid, ParameterSampler
+from tensorboardX import SummaryWriter
 
 
 class AverageMeter(object):
@@ -112,6 +113,8 @@ def get_logger(log_dir, loglevel=logging.INFO, tensorboard_dir=None):
 
 def get_optim(params, target):
 
+    assert isinstance(target, nn.Module) or isinstance(target, dict)
+
     if isinstance(target, nn.Module):
         target = target.parameters()
 
@@ -134,12 +137,12 @@ def get_optim(params, target):
     return optimizer
 
 
-def write_tuning_result(params: dict, results: dict, df_path: str):
+def write_tuning_result(params: dict, result: dict, df_path: str):
     row = pd.DataFrame()
     for key in params['tuning_params']:
         row[key] = [params[key]]
 
-    for key, val in results.items():
+    for key, val in result.items():
         row[key] = val
 
     with lockfile.FileLock(df_path):
@@ -148,11 +151,13 @@ def write_tuning_result(params: dict, results: dict, df_path: str):
         df_results.to_csv(df_path, index=None)
 
 
-# check if current params combination has already done
-def check_duplicate(df, p, space):
-    # new key is included
-    if not all(map(lambda x: x in df.columns, space.keys())):
+def check_duplicate(df: pd.DataFrame, p: dict, space):
+    """check if current params combination has already done"""
+
+    new_key_is_included = not all(map(lambda x: x in df.columns, space.keys()))
+    if new_key_is_included:
         return False
+
     for i in range(len(df)):  # for avoiding unexpected cast due to row-slicing
         is_dup = True
         for key, val in p.items():
@@ -161,10 +166,28 @@ def check_duplicate(df, p, space):
                 break
         if is_dup:
             return True
-    return False
+    else:
+        return False
 
 
-def launch_tuning(mode, n_iter, n_gpu, devices, params, space, root, metrics=('acc', 'loss')):
+def launch_tuning(mode: str, n_iter: int, n_gpu: int, devices: str,
+                  params: dict, space: dict, root):
+    """
+    Launch paramter search by specific way.
+    Each trials are launched asynchronously by forking subprocess and all results of trials
+    are automatically written in csv file.
+
+    :param mode: the way of parameter search, one of 'grid or random'.
+    :param n_iter: num of iteration for random search.
+    :param n_gpu: num of gpu used at one trial.
+    :param devices: gpu devices for tuning.
+    :param params: training parameters.
+                   the values designated as tuning parameters are overwritten
+    :param space: paramter search space.
+    :param root: path of the root directory.
+    :param metrics: metrics to be recorded.
+    """
+
     gpu_list = deque(devices.split(','))
 
     if mode == 'grid':
@@ -181,8 +204,6 @@ def launch_tuning(mode, n_iter, n_gpu, devices, params, space, root, metrics=('a
         df_results = pd.read_csv(df_path)
     else:
         cols = list(param_list[0].keys())
-        for m in metrics:
-            cols.append(m)
         df_results = pd.DataFrame(columns=cols)
         df_results.to_csv(df_path, index=False)
 
@@ -222,12 +243,18 @@ def launch_tuning(mode, n_iter, n_gpu, devices, params, space, root, metrics=('a
             break
 
 
-def show_tuning_result(ex_name, mode='markdown', sort_by='val_miou_3'):
+def show_tuning_result(ex_name, mode='markdown', sort_by='val_miou_3', only_class=True):
     res = pd.read_csv(f'../experiments/{ex_name}/tuning/results.csv')
+    if only_class:
+        res = res.loc[:, ~res.columns.str.contains('category')]
     table = res.sort_values(sort_by, ascending=False)
+    table.loc[:, table.columns.str.contains('miou')] *= 100
     if mode == 'markdown':
         from tabulate import tabulate
         print(tabulate(table, headers='keys', tablefmt='pipe', showindex=False))
+    elif mode == 'latex':
+        from tabulate import tabulate
+        print(tabulate(table, headers='keys', tablefmt='latex', floatfmt='.2f', showindex=False))
     else:
         from IPython.core.display import display
         display(table)

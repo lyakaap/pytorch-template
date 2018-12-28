@@ -1,18 +1,19 @@
-import click
 import json
-import numpy as np
-import pandas as pd
-from pathlib import Path
-import lockfile
-from tqdm import tqdm
 import os
 import subprocess
-from sklearn.model_selection import train_test_split
+from pathlib import Path
+
+import click
+import numpy as np
+import pandas as pd
 import torch
 import torch.nn as nn
 import torch.optim as optim
+from sklearn.model_selection import train_test_split
 from torch.utils.data import DataLoader
 from torchvision import transforms
+from tqdm import tqdm
+
 from src import utils, data_utils, models
 
 ROOT = '/opt/airbus-ship-detection/'
@@ -52,6 +53,11 @@ def cli():
 @click.option('--devices', '-d', type=str, help='comma delimited gpu device list (e.g. "0,1")')
 @click.option('--resume', type=str, default=None, help='checkpoint path')
 def job(tuning, params_path, devices, resume):
+    """
+    Example:
+        python exp0.py job --devices 0,1 -s
+        python exp0.py tuning --devices 0,1 --n-gpu 1 --mode 'random' --n-iter 4
+    """
 
     exp_path = ROOT + f'experiments/{params["ex_name"]}/'
     os.environ['CUDA_VISIBLE_DEVICES'] = devices
@@ -105,7 +111,8 @@ def job(tuning, params_path, devices, resume):
                                       pin_memory=True, shuffle=False, num_workers=params['workers'])}
 
     criterion = nn.CrossEntropyLoss()
-    scheduler = optim.lr_scheduler.MultiStepLR(optimizer, milestones=[7, 9], gamma=0.1)
+    scheduler = optim.lr_scheduler.MultiStepLR(
+        optimizer, milestones=[int(params['epochs'] * 0.7), int(params['epochs'] * 0.9)], gamma=0.1)
 
     for epoch in range(params['epochs']):
         logger.info(f'Epoch {epoch}/{params["epochs"]} | lr: {optimizer.param_groups[0]["lr"]}')
@@ -118,8 +125,8 @@ def job(tuning, params_path, devices, resume):
 
         for i, (x, y) in tqdm(enumerate(data_loaders['train']),
                               total=len(data_loaders['train']), miniters=50):
-            x = x.cuda()
-            y = y.cuda(non_blocking=True)
+            x = x.to('cuda:0')
+            y = y.to('cuda:0', non_blocking=True)
 
             outputs = model(x)
             loss = criterion(outputs, y)
@@ -170,33 +177,32 @@ def job(tuning, params_path, devices, resume):
             utils.save_checkpoint(model, epoch, exp_path + 'model_optim.pth', optimizer)
 
     if tuning:
-        row = pd.DataFrame()
-        for key, val in params.items():
-            if key in params['tuning_params']:
-                row[key] = [val]
+        tuning_result = {}
+        for key in ['train_loss', 'train_acc', 'val_loss', 'val_acc']:
+            tuning_result[key] = [eval(key)]
+        utils.write_tuning_result(params, tuning_result, exp_path + 'tuning/results.csv')
 
-        row['train_loss'] = [train_loss]
-
-        df_path = exp_path + f'{mode_str}/results.csv'
-        with lockfile.FileLock(df_path):
-            df_results = pd.read_csv(df_path)
-            df_results = pd.concat([df_results, row], sort=False).reset_index(drop=True)
-            df_results.to_csv(df_path, index=None)
 
 
 @cli.command()
 @click.option('--mode', type=str, default='grid', help='Search method (tuning)')
-@click.option('--n-iter', type=int, default=8, help='n of iteration for random parameter search (tuning)')
+@click.option('--n-iter', type=int, default=10, help='n of iteration for random parameter search (tuning)')
 @click.option('--n-gpu', type=int, default=-1, help='n of used gpu at once')
 @click.option('--devices', '-d', type=str, help='comma delimited gpu device list (e.g. "0,1")')
 def tuning(mode, n_iter, n_gpu, devices):
+    """
+    Example:
+        python exp0.py tuning --devices 0,1 --n-gpu 1
+        python exp0.py tuning --devices 0,1 --n-gpu 1 --mode 'random' --n-iter 4
+    """
+
     if n_gpu == -1:
         n_gpu = len(devices.split(','))
     space = {
         'lr': [1e-5, 1e-4, 1e-3],
         'batch_size': [16, 8],
     }
-    utils.launch_tuning(mode, n_iter, n_gpu, devices, params, space, ROOT, metrics=('train_loss', 'acc'))
+    utils.launch_tuning(mode, n_iter, n_gpu, devices, params, space, ROOT)
 
 
 @cli.command()
@@ -205,6 +211,7 @@ def tuning(mode, n_iter, n_gpu, devices):
 @click.option('--compression', '-c', is_flag=True)
 @click.option('--message', '-m', default=None, type=str)
 def predict(model_path, devices, compression, message):
+    """WIP"""
 
     os.environ['CUDA_VISIBLE_DEVICES'] = devices
 
