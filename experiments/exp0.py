@@ -38,8 +38,6 @@ def cli():
         Path(ROOT + f'experiments/{params["ex_name"]}/train').mkdir(parents=True)
     if not Path(ROOT + f'experiments/{params["ex_name"]}/tuning').exists():
         Path(ROOT + f'experiments/{params["ex_name"]}/tuning').mkdir(parents=True)
-    if not Path(ROOT + f'experiments/{params["ex_name"]}/tmp').exists():
-        Path(ROOT + f'experiments/{params["ex_name"]}/tmp').mkdir(parents=True)
 
     np.random.seed(params['seed'])
     torch.manual_seed(params['seed'])
@@ -56,7 +54,6 @@ def job(tuning, params_path, devices, resume):
     """
     Example:
         python exp0.py job --devices 0,1 -s
-        python exp0.py tuning --devices 0,1 --n-gpu 1 --mode 'random' --n-iter 4
     """
 
     exp_path = ROOT + f'experiments/{params["ex_name"]}/'
