@@ -53,7 +53,7 @@ def cli():
 def job(tuning, params_path, devices, resume):
     """
     Example:
-        python exp0.py job --devices 0,1 -s
+        python exp0.py job --devices 0,1
     """
 
     exp_path = ROOT + f'experiments/{params["ex_name"]}/'
