@@ -185,7 +185,6 @@ def launch_tuning(mode: str, n_iter: int, n_gpu: int, devices: str,
                    the values designated as tuning parameters are overwritten
     :param space: paramter search space.
     :param root: path of the root directory.
-    :param metrics: metrics to be recorded.
     """
 
     gpu_list = deque(devices.split(','))
@@ -241,14 +240,16 @@ def launch_tuning(mode: str, n_iter: int, n_gpu: int, devices: str,
         if all(p.poll() is not None for i, (p, dev) in enumerate(procs)):
             print('All parameter combinations have finished.')
             break
+    
+    show_tuning_result(params["ex_name"])
 
 
-def show_tuning_result(ex_name, mode='markdown', sort_by='val_miou_3', only_class=True):
-    res = pd.read_csv(f'../experiments/{ex_name}/tuning/results.csv')
-    if only_class:
-        res = res.loc[:, ~res.columns.str.contains('category')]
-    table = res.sort_values(sort_by, ascending=False)
-    table.loc[:, table.columns.str.contains('miou')] *= 100
+def show_tuning_result(ex_name, mode='markdown', sort_by=None, ascending=False):
+    
+    table = pd.read_csv(f'../experiments/{ex_name}/tuning/results.csv')
+    if sort_by is not None:
+        table = table.sort_values(sort_by, ascending=ascending)
+    
     if mode == 'markdown':
         from tabulate import tabulate
         print(tabulate(table, headers='keys', tablefmt='pipe', showindex=False))
