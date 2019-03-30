@@ -56,9 +56,6 @@ def job(tuning, params_path, devices, resume):
         python exp0.py job --devices 0,1
     """
 
-    exp_path = ROOT + f'experiments/{params["ex_name"]}/'
-    os.environ['CUDA_VISIBLE_DEVICES'] = devices
-
     global params
     if tuning:
         with open(params_path, 'r') as f:
@@ -68,7 +65,10 @@ def job(tuning, params_path, devices, resume):
     else:
         mode_str = 'train'
         setting = ''
-
+    
+    exp_path = ROOT + f'experiments/{params["ex_name"]}/'
+    os.environ['CUDA_VISIBLE_DEVICES'] = devices
+    
     logger, writer = utils.get_logger(log_dir=exp_path + f'{mode_str}/log/{setting}',
                                       tensorboard_dir=exp_path + f'{mode_str}/tf_board/{setting}')
 
