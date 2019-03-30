@@ -2,7 +2,7 @@ import numpy as np
 import torch
 
 
-def accuracy(outputs: torch.Tensor, labels: torch.Tensor, ignore_index: int=None) -> int:
+def accuracy(outputs: torch.Tensor, labels: torch.Tensor, ignore_index: int=None) -> float:
     # Num of class should be less than 255.
 
     if len(outputs.shape) == 4:
