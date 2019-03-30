@@ -78,7 +78,7 @@ def job(tuning, params_path, devices, resume):
     model = models.UNet(in_channels=3, n_classes=2, depth=4, ch_first=32, padding=True,
                         batch_norm=False, up_mode='upconv').cuda()
 
-    optimizer = utils.get_optim(model, params)
+    optimizer = utils.get_optim(params, model)
 
     if resume is not None:
         model, optimizer = utils.load_checkpoint(model, resume, optimizer=optimizer)
